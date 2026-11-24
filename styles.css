@@ -31,3 +31,13 @@ dialog{width:min(520px,calc(100% - 24px));max-height:calc(100dvh - 28px);border:
 .slot.one-hour::before{background:white;border:1px solid #77b8aa}
 .slot:hover::before,.slot:focus-visible::before{opacity:0}
 .dot.one{background:white;border:1px solid #40a998}.date-label #date-label::first-letter{text-transform:uppercase}
+
+.visit{user-select:none}
+.resize-edge{position:absolute;inset:auto 0 -1px;height:8px}
+@media (hover:hover) and (pointer:fine){
+  .visit:not(.visit-preview){cursor:grab}
+  .visit .resize-edge{cursor:ns-resize}
+}
+.visit-source{opacity:.28}
+.visit-preview{position:fixed;z-index:5;transform:none;pointer-events:none;box-shadow:0 5px 16px #13223640;border-style:dashed}
+.visit-preview.visit-invalid{background:#fff1dd;border-color:#c57619;color:#763e0a}

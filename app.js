@@ -34,6 +34,7 @@ const minutes = value => {
 const interval = (start, end) => `${time(start)}–${time(end)}`;
 const formatDate = new Intl.DateTimeFormat('ru-RU', {weekday:'long', day:'numeric', month:'long', year:'numeric'});
 const initials = name => name.trim().split(/\s+/).slice(0, 2).map(word => Array.from(word)[0]).join('').toUpperCase();
+const slotStep = 30;
 const storageKey = 'avtopost-v1';
 
 function demoData() {
@@ -83,7 +84,7 @@ function save(message) {
   } catch {
     storageError = 'Хранилище браузера недоступно. Изменения могут пропасть после обновления.';
   }
-  dialog.close();
+  if (dialog.open) dialog.close();
   render();
   notify(storageError || message);
 }
@@ -97,6 +98,21 @@ function shiftProblem(visit) {
   if (shift.off) return 'У механика выходной';
   if (visit.start < shift.start || visit.start + visit.duration > shift.end) return 'Запись выходит за границы смены';
   return '';
+}
+function visitProblem(visit) {
+  const end = visit.start + visit.duration;
+  if (visit.start < 0 || end > 1440) return 'Запись должна помещаться в пределах одного дня.';
+  const issue = shiftProblem(visit);
+  if (issue) return `${issue}. Выберите другое время, другого механика или «Без назначения».`;
+  const conflict = visit.mechanic && data.visits.find(other => other.id !== visit.id &&
+    other.date === visit.date && other.mechanic === visit.mechanic && overlaps(visit.start, end, other));
+  if (conflict) return `Конфликт. Механик уже занят с ${time(conflict.start)} до ${time(conflict.start + conflict.duration)}.`;
+  return '';
+}
+function saveVisit(visit, existing, message) {
+  data.visits = existing ? data.visits.map(other => other.id === visit.id ? visit : other) : [...data.visits, visit];
+  selectedDate = visit.date;
+  save(message);
 }
 function shiftText(shift) {
   if (!shift) return 'Смена не задана';
@@ -132,8 +148,8 @@ function renderCalendar() {
     const unavailable = (a,b) => a < b ? `<div class="unavailable" style="${position(a,b)}"></div>` : '';
     let slots = '';
     if (active) {
-      for (let at = from; at < to; at += 30) {
-        const until = Math.min(at + 30, to);
+      for (let at = from; at < to; at += slotStep) {
+        const until = Math.min(at + slotStep, to);
         if (id && laneVisits.some(visit => overlaps(at, until, visit))) continue;
         if (until - at < 15) continue;
         const duration = [60,120].filter(length => at + length <= to &&
@@ -168,12 +184,12 @@ function renderCalendar() {
         const detail = problem ? `⚠ ${problem}` : visit.reason || visit.client;
         const width = 100 / ends.length;
         const period = interval(visit.start, visit.start + visit.duration);
-        return `<button class="visit ${tone} ${visit.duration < 45 ? 'short' : ''}" type="button" data-visit="${visit.id}" style="${position(visit.start,visit.start + visit.duration)};left:calc(${column * width}% + 4px);width:calc(${width}% - 8px);height:calc(${visit.duration / total * 100}% - 3px);transform:translateY(1px)" title="${escapeHtml([period,title,detail].join(' · '))}"><span class="visit-time">${problem ? '⚠ ' : ''}${period}</span><strong>${escapeHtml(title)}</strong><span class="visit-detail">${escapeHtml(detail)}</span></button>`;
+        return `<button class="visit ${tone} ${visit.duration < 45 ? 'short' : ''}" type="button" data-visit="${visit.id}" style="${position(visit.start,visit.start + visit.duration)};left:calc(${column * width}% + 4px);width:calc(${width}% - 8px);height:calc(${visit.duration / total * 100}% - 3px);transform:translateY(1px)" title="${escapeHtml([period,title,detail].join(' · '))}"><span class="visit-time">${problem ? '⚠ ' : ''}${period}</span><strong>${escapeHtml(title)}</strong><span class="visit-detail">${escapeHtml(detail)}</span><span class="resize-edge" aria-hidden="true"></span></button>`;
       }).join('');
     }).join('');
-    return `<div class="lane">${active ? unavailable(start,from) + unavailable(to,end) : unavailable(start,end)}${slots}${cards}</div>`;
+    return `<div class="lane" data-lane="${id}">${active ? unavailable(start,from) + unavailable(to,end) : unavailable(start,end)}${slots}${cards}</div>`;
   }).join('');
-  $('#content').innerHTML = `<div class="calendar-scroll" tabindex="0" aria-label="Расписание по времени"><div class="calendar-grid" style="--columns:${lanes.length};--hours:${total / 60}"><div class="column-head time-head">Время</div>${headings}<div class="times">${ticks}</div>${columns}</div></div>`;
+  $('#content').innerHTML = `<div class="calendar-scroll" tabindex="0" aria-label="Расписание по времени"><div class="calendar-grid" data-start="${start}" data-length="${total}" style="--columns:${lanes.length};--hours:${total / 60}"><div class="column-head time-head">Время</div>${headings}<div class="times">${ticks}</div>${columns}</div></div>`;
 }
 
 function renderShifts() {
@@ -184,6 +200,7 @@ function renderShifts() {
   $('#content').innerHTML = `<div class="shift-list">${rows || '<p class="empty">Добавьте первого механика.</p>'}</div>`;
 }
 function render() {
+  clearVisitGesture();
   const inShifts = location.hash === '#shifts';
   const scroller = $('.calendar-scroll');
   const previousPosition = scroller ? [scroller.scrollLeft, scroller.scrollTop] : [0, 0];
@@ -208,7 +225,7 @@ function render() {
   $('#date-label').textContent = formatDate.format(localDate(selectedDate));
   $('#hint').innerHTML = icon('info') + (storageError || (inShifts
     ? 'Изменения смен сразу появляются в календаре.'
-    : 'Нажмите на свободное время для записи или на карточку для переноса.'));
+    : 'Нажмите на карточку для редактирования. Перетащите её для переноса или потяните нижний край для изменения длительности.'));
   if (inShifts) renderShifts();
   else {
     renderCalendar();
@@ -236,6 +253,10 @@ function editVisit(existing, slot, mechanic = '') {
   const options = [`<option value="">Без назначения</option>`, ...data.mechanics.map(({id,name}) =>
     `<option value="${id}" ${id === visit.mechanic ? 'selected' : ''}>${escapeHtml(name)}</option>`)].join('');
   const durations = [[30,'30 минут'],[60,'1 час'],[90,'1 час 30 минут'],[120,'2 часа']];
+  if (!durations.some(([value]) => value === visit.duration)) {
+    durations.push([visit.duration, `${visit.duration} мин.`]);
+    durations.sort(([a], [b]) => a - b);
+  }
   openEditor(existing ? 'Редактировать запись' : 'Новая запись', `
     ${problem ? `<p class="notice">⚠ ${problem}. Выберите подходящее время или другого механика.</p>` : ''}
     <div class="lookup">${field('Поиск машины',input('lookup','','placeholder="Телефон или госномер" maxlength="35"'))}${button('Найти','search')}</div>
@@ -256,17 +277,10 @@ function editVisit(existing, slot, mechanic = '') {
     updated.start = minutes(values.get('start'));
     updated.duration = Number(values.get('duration'));
     updated.id = existing?.id || crypto.randomUUID?.() || 'v-' + Date.now();
-    const end = updated.start + updated.duration;
     if (!updated.client && !updated.phone && !updated.car && !updated.plate) return 'Укажите клиента, телефон, автомобиль или госномер.';
-    if (end > 1440) return 'Запись должна закончиться до полуночи или ровно в 00:00.';
-    const issue = shiftProblem(updated);
-    if (issue) return `${issue}. Выберите другое время, другого механика или «Без назначения».`;
-    const conflict = updated.mechanic && data.visits.find(other => other.id !== updated.id &&
-      other.date === updated.date && other.mechanic === updated.mechanic && overlaps(updated.start,end,other));
-    if (conflict) return `Конфликт. Механик уже занят с ${time(conflict.start)} до ${time(conflict.start + conflict.duration)}.`;
-    data.visits = existing ? data.visits.map(other => other.id === updated.id ? updated : other) : [...data.visits,updated];
-    selectedDate = updated.date;
-    save(existing ? 'Изменения записи сохранены' : 'Запись добавлена');
+    const issue = visitProblem(updated);
+    if (issue) return issue;
+    saveVisit(updated, existing, existing ? 'Изменения записи сохранены' : 'Запись добавлена');
   });
   const lookup = editor.elements.lookup;
   const search = () => {
@@ -348,6 +362,125 @@ function addMechanic() {
     editShift({id,name});
   });
 }
+
+let visitGesture;
+let suppressGestureClick = false;
+
+function clearVisitGesture() {
+  if (!visitGesture) return;
+  const {card, preview, pointerId} = visitGesture;
+  visitGesture = undefined;
+  preview?.remove();
+  card.classList.remove('visit-source');
+  if (card.hasPointerCapture(pointerId)) card.releasePointerCapture(pointerId);
+}
+
+document.addEventListener('pointerdown', event => {
+  suppressGestureClick = false;
+  const card = event.target.closest('.visit[data-visit]');
+  if (!card || event.pointerType !== 'mouse' || event.button !== 0 || visitGesture) return;
+  const lane = card.closest('.lane');
+  const grid = lane.closest('.calendar-grid');
+  const visit = data.visits.find(entry => entry.id === card.dataset.visit);
+  visitGesture = {
+    card, lane, grid, visit, pointerId:event.pointerId,
+    resize:Boolean(event.target.closest('.resize-edge')),
+    x:event.clientX, y:event.clientY,
+    laneTop:lane.getBoundingClientRect().top
+  };
+});
+
+function showVisitPreview(event, gesture) {
+  const {card, preview, visit, grid, lane, resize} = gesture;
+  const target = document.elementFromPoint(event.clientX, event.clientY)?.closest('.lane');
+  const inside = target && grid.contains(target);
+  const destination = resize || !inside ? lane : target;
+  const {left, top, width, height} = destination.getBoundingClientRect();
+  const startOfGrid = Number(grid.dataset.start);
+  const pixelsPerMinute = height / Number(grid.dataset.length);
+  const mechanic = destination.dataset.lane;
+  const shift = shiftFor(visit.date, mechanic);
+  const anchor = shift?.start ?? startOfGrid;
+  const snap = value => anchor + Math.round((value - anchor) / slotStep) * slotStep;
+  const delta = (event.clientY - gesture.y + gesture.laneTop - top) / pixelsPerMinute;
+  const updated = {...visit, mechanic};
+  if (resize) {
+    const earliestEnd = anchor + Math.ceil((visit.start + slotStep - anchor) / slotStep) * slotStep;
+    const end = Math.max(earliestEnd, snap(visit.start + visit.duration + delta));
+    updated.duration = end - visit.start;
+  } else {
+    updated.start = Math.max(0, snap(visit.start + delta));
+  }
+
+  const end = updated.start + updated.duration;
+  const issue = inside ? visitProblem(updated) : 'Отпустите карточку внутри календаря.';
+  preview.classList.toggle('visit-invalid', Boolean(issue));
+  preview.classList.toggle('short', updated.duration < 45);
+  preview.querySelector('.visit-time').textContent = interval(updated.start, end);
+  const cardRect = card.getBoundingClientRect();
+  preview.style.left = `${resize ? cardRect.left : inside ? left + 4 : cardRect.left + event.clientX - gesture.x}px`;
+  preview.style.top = `${top + (updated.start - startOfGrid) * pixelsPerMinute + 1}px`;
+  preview.style.width = `${resize || !inside ? cardRect.width : width - 8}px`;
+  preview.style.height = `${Math.max(24, updated.duration * pixelsPerMinute - 3)}px`;
+  return {updated, issue};
+}
+
+document.addEventListener('pointermove', event => {
+  const gesture = visitGesture;
+  if (!gesture || gesture.pointerId !== event.pointerId) return;
+  if (!gesture.preview) {
+    const dy = Math.abs(event.clientY - gesture.y);
+    const distance = gesture.resize ? dy : Math.hypot(event.clientX - gesture.x, dy);
+    if (distance < 4) return;
+    gesture.card.setPointerCapture(event.pointerId);
+    gesture.card.classList.add('visit-source');
+    gesture.preview = document.createElement('div');
+    gesture.preview.className = 'visit visit-preview';
+    gesture.preview.setAttribute('aria-hidden', 'true');
+    gesture.preview.append(...Array.from(gesture.card.children, child => child.cloneNode(true)));
+    gesture.preview.querySelector('.resize-edge').remove();
+    document.body.append(gesture.preview);
+    suppressGestureClick = true;
+  }
+  showVisitPreview(event, gesture);
+});
+
+document.addEventListener('pointerup', event => {
+  const gesture = visitGesture;
+  if (!gesture || gesture.pointerId !== event.pointerId || event.button !== 0) return;
+  const result = gesture.preview && showVisitPreview(event, gesture);
+  clearVisitGesture();
+  if (!result) return;
+  const {updated, issue} = result;
+  const {visit, resize} = gesture;
+  if (issue) {
+    notify(issue);
+  } else if (updated.start !== visit.start || updated.mechanic !== visit.mechanic || updated.duration !== visit.duration) {
+    saveVisit(updated, visit, resize ? 'Длительность визита изменена' : 'Запись перенесена');
+  }
+});
+
+for (const type of ['pointercancel', 'lostpointercapture']) {
+  document.addEventListener(type, event => {
+    if (visitGesture?.pointerId === event.pointerId) clearVisitGesture();
+  });
+}
+
+window.addEventListener('blur', clearVisitGesture);
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && visitGesture) {
+    event.preventDefault();
+    clearVisitGesture();
+  }
+});
+
+document.addEventListener('click', event => {
+  if (suppressGestureClick && event.detail > 0) {
+    suppressGestureClick = false;
+    event.preventDefault();
+    event.stopPropagation();
+  }
+}, true);
 
 $('#content').onclick = event => {
   const control = event.target.closest('button');
