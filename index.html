@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>АвтоПост — календарь автосервиса</title>
+<link rel="stylesheet" href="styles.css">
+<script defer src="app.js"></script>
+</head>
+<body>
+<aside class="sidebar">
+  <a class="brand" href="#calendar" aria-label="АвтоПост, календарь"><span class="brand-mark" data-icon="tool"></span><span>АвтоПост<small>Управление автосервисом</small></span></a>
+  <nav aria-label="Разделы">
+    <a href="#calendar" data-nav="calendar"><span data-icon="calendar"></span>Календарь</a>
+    <a href="#shifts" data-nav="shifts"><span data-icon="users"></span>Табель</a>
+  </nav>
+  <div class="sidebar-footer"><span class="profile">В</span><span>Владелец<small>Демонстрационные данные</small></span></div>
+</aside>
+<main>
+  <header class="page-heading">
+    <div><h1 id="title">Календарь записи</h1><p id="subtitle"></p></div>
+    <button id="primary" class="button primary" type="button"></button>
+  </header>
+  <section class="schedule" aria-labelledby="title">
+    <div class="toolbar">
+      <div class="date-controls">
+        <div class="arrows"><button id="previous" type="button" aria-label="Предыдущий день" data-icon="left"></button><button id="next" type="button" aria-label="Следующий день" data-icon="right"></button></div>
+        <div class="date-label"><span data-icon="calendar"></span><span id="date-label"></span><input id="date" type="date" aria-label="Выбрать дату"></div>
+        <button class="button today" id="today" type="button">Сегодня</button>
+      </div>
+      <div id="legend" class="legend"><span><i class="dot one"></i>1 час</span><span><i class="dot free"></i>2 часа</span><span><i class="dot booked"></i>Запись</span><span><i class="dot off"></i>Вне смены</span></div>
+    </div>
+    <div id="content"></div>
+  </section>
+  <div class="page-footer" id="hint"></div>
+</main>
+<dialog id="dialog"><form id="editor" novalidate></form></dialog>
+<div id="toast" role="status"></div>
+</body>
+</html>
